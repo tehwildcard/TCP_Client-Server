@@ -1,90 +1,128 @@
-import java.io.BufferedReader;
-import java.io.DataOutputStream;
 import java.io.IOException;
-import java.io.InputStreamReader;
+import java.io.PrintWriter;
 import java.net.Socket;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.net.InetAddress;
 
+//package TCP_Client;
 /**
  * Created by Clay's on 2/5/2017.
  */
 
 public class Client {
-    public static void main(String[] args) throws IOException {
-        try {
-            while (true) {
-                printMenu();
+    private static String host;
+    private static int numberOfThreads;
+    private static ClientThreads[] clientThreads;
 
-                //Create a list of valid commands
-                ArrayList<String> validCommandsList = new ArrayList<>();
-                Collections.addAll(validCommandsList, "1", "2", "3", "4", "5", "6", "7");
-                //Create a BufferedReader to read user input
-                BufferedReader fromUser = new BufferedReader(new InputStreamReader(System.in));
-                String lineFromUserString = fromUser.readLine();
+    private static void createThreads(int numberOfThreads, String host, int port, String command) {
+        clientThreads = new ClientThreads[numberOfThreads];
 
-                //Check to make sure the user enters a valid command
-                if (validCommandsList.contains(lineFromUserString)) {
-                    //Create a socket for communication with the server at the set IP address and port number
-                    //Socket socket = new Socket("139.62.210.150", 4289);
-                    Socket socket = new Socket(InetAddress.getLocalHost(), 4289);
+        for (int i = 0; i < numberOfThreads; i++) {
+            ;
+            clientThreads[i] = new ClientThreads(host, port, command);
 
-                    //Create a DataOutputStream object to handle sending the commands
-                    DataOutputStream toServer = new DataOutputStream(socket.getOutputStream());
-                    toServer.writeBytes(lineFromUserString + '\n');
+        }
+    }
 
-                    //Create a BufferedReader to monitor the input stream for a response
-                    BufferedReader fromServer = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+    private static void startThreads() {
+        int i;
+        boolean threadsAlive = true;
+        for (i = 0; i < clientThreads.length; i++) {
 
-                    //Print the information received from the server
-                    String outputLine = fromServer.readLine();
-                    while (outputLine != null) {
-                        System.out.println(outputLine);
-                        outputLine = fromServer.readLine();
+            clientThreads[i].start();
+        }
+        //make sure all the threads are dead before leaving the function
+        while (threadsAlive) {
+            threadsAlive = false;
+            for (i = 0; i < clientThreads.length; i++) {
+                if (clientThreads[i].isAlive()) {
+                    threadsAlive = true;
+                    //if some threads are alive, wait 10 ms before starting the loop again
+                    //gives threads more time to execute and hopefully eliminates needless loops
+                    try {
+                        Thread.sleep(10);
+                    } catch (Exception e) {
+
                     }
-                    System.out.println();
 
-                    //Flush and close connections or reader objects
-                    socket.close();
-                    toServer.flush();
-                    toServer.close();
-                    fromServer.close();
-
-                    //Check if the user wanted to exit
-                    if (lineFromUserString.equals("7")) {
-                        //Exit the loop
-                        System.out.println("Existing program.");
-                        fromUser.close();
-                        return;
-                    }
-                }
-                else {
-                    System.out.println("This is not a valid command. \n");
                 }
             }
-        } catch (Exception e) {
-            //Handle all exceptions thrown during runtime
-            e.printStackTrace();
+        }
+    }
+//prints thread response time and calculates average response time and prints it
+
+    private static void getResponseTimes(int numberOfThreads) {
+        double sumTotalTimes = 0;
+        System.out.println("");
+        System.out.printf("Server reponse time(s) in miliseconds below. %n");
+        for (ClientThreads thread : clientThreads) {
+            System.out.printf("%.2f, ", thread.getTotalTime());
+
+            sumTotalTimes += thread.getTotalTime();
+        }
+        System.out.println("");
+        System.out.printf("%nAverage Server response time: %.2f ms", (sumTotalTimes / ((double) numberOfThreads)));
+        System.out.println("");
+        System.out.println("");
+    }
+
+    //send exit command to the server
+    private static void serverExit() {
+
+        try {
+
+            Socket socket = new Socket(host, 5000);
+            PrintWriter outputStream = new PrintWriter(socket.getOutputStream(), true);
+            outputStream.printf("exit");
+            outputStream.close();
+            socket.close();
+        } catch (IOException i) {
+        }
+    }
+
+    public static void main(String[] args) {
+        UserInterface ui;
+        String command;
+        boolean running = true;
+
+        if (args.length < 1) { //exit if no host provided
+            System.out.printf("No host ip provided, exiting program...");
+            return;
+        } else {
+            host = args[0];
+            if (args.length == 2) { //if two parameters passed set number of threads
+                numberOfThreads = Integer.parseInt(args[1]);
+            } else {
+                System.out.printf("Number of threads not defined, using default of 1 thread.%n");
+                numberOfThreads = 1;
+            }
+        }
+        if (numberOfThreads == 0) {
+            numberOfThreads = 1;
         }
 
-        System.out.println("Left loop");
-    }
+        ui = new UserInterface(numberOfThreads);
+        while (running = true) {
+            ui.displayUserMenu();
+            command = ui.getServerCommandFromUserCommand();
 
-    //Private, static method to show the options menu
-    private static void printMenu(){
-        System.out.println("Client Server Menu");
-        System.out.println("Please input a number from the following Client Server Options");
-        System.out.println();
-        System.out.println("1.  Host current Date and Time");
-        System.out.println("2.  Host uptime");
-        System.out.println("3.  Host memory use");
-        System.out.println("4.  Host Netstat");
-        System.out.println("5.  Host current users");
-        System.out.println("6.  Host running process");
-        System.out.println("7.  Quit");
+            if (command.equals("thread")) {
+                numberOfThreads = ui.updateNumberOfThreads();
+            } else if (command.equals("exit")) {
+                serverExit();
+                System.out.printf("The program is exiting...%n");
+                running = false;
+                break;
+            } else {
+                System.out.printf("The command to be run is on the host is %n", command);
+                System.out.println("Output from the host: ");
+
+                createThreads(numberOfThreads, host, 5000, command);
+                startThreads();
+
+                getResponseTimes(numberOfThreads);
+
+            }
+        }
+
+        return;
     }
 }
-
-
-
